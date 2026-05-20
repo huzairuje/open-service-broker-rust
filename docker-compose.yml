@@ -1,0 +1,39 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: broker
+      POSTGRES_PASSWORD: broker
+      POSTGRES_DB: broker
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U broker -d broker"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  broker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      BROKER_HOST: 0.0.0.0
+      BROKER_PORT: 8080
+      BROKER_USERNAME: admin
+      BROKER_PASSWORD: password
+      BROKER_CATALOG_PATH: /app/catalog.json
+      # Selecting the storage backend. Set to "memory" to skip Postgres.
+      BROKER_STORAGE: postgres
+      DATABASE_URL: postgres://broker:broker@postgres:5432/broker
+      RUST_LOG: info,rust_open_service_broker=debug
+    ports:
+      - "8080:8080"
+
+volumes:
+  pgdata:

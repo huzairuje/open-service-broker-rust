@@ -1,0 +1,69 @@
+{
+  "services": [
+    {
+      "id": "4f6e6cf6-ffdd-425f-a2c7-3c9258ad2468",
+      "name": "example-db",
+      "description": "An example database service offered by this broker.",
+      "bindable": true,
+      "tags": ["example", "database"],
+      "metadata": {
+        "displayName": "Example DB",
+        "longDescription": "Reference service used for testing the broker.",
+        "providerDisplayName": "rust-open-service-broker"
+      },
+      "plan_updateable": true,
+      "instances_retrievable": true,
+      "bindings_retrievable": true,
+      "plans": [
+        {
+          "id": "86064792-7ea2-467b-af93-ac9694d96d5b",
+          "name": "free",
+          "description": "Free shared plan.",
+          "free": true,
+          "bindable": true,
+          "plan_updateable": true,
+          "metadata": { "bullets": ["Shared", "Free"] },
+          "schemas": {
+            "service_instance": {
+              "create": {
+                "parameters": {
+                  "$schema": "http://json-schema.org/draft-07/schema#",
+                  "type": "object",
+                  "properties": {
+                    "db_name": { "type": "string", "minLength": 1, "maxLength": 64 }
+                  },
+                  "additionalProperties": true
+                }
+              },
+              "update": {
+                "parameters": {
+                  "$schema": "http://json-schema.org/draft-07/schema#",
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            },
+            "service_binding": {
+              "create": {
+                "parameters": {
+                  "$schema": "http://json-schema.org/draft-07/schema#",
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          }
+        },
+        {
+          "id": "f52eabf8-e65c-4f5b-9e86-7f3c2c7b6f24",
+          "name": "pro",
+          "description": "Dedicated paid plan.",
+          "free": false,
+          "bindable": true,
+          "plan_updateable": true,
+          "metadata": { "bullets": ["Dedicated", "Paid"] }
+        }
+      ]
+    }
+  ]
+}
