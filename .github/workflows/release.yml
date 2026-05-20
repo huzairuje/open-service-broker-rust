@@ -1,0 +1,203 @@
+name: release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag to release (e.g. v0.1.0). Leave empty for current ref.'
+        required: false
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: short
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Linux + macOS + Windows: native runners, simple matrix.
+  # ---------------------------------------------------------------------------
+  build-native:
+    name: build ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            archive: tar.gz
+            features: ''
+            asset_name: rust-open-service-broker-linux-x86_64
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            archive: tar.gz
+            features: 'postgres'
+            asset_name: rust-open-service-broker-linux-x86_64-postgres
+          - os: macos-13
+            target: x86_64-apple-darwin
+            archive: tar.gz
+            features: ''
+            asset_name: rust-open-service-broker-macos-x86_64
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            archive: tar.gz
+            features: ''
+            asset_name: rust-open-service-broker-macos-aarch64
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            archive: zip
+            features: ''
+            asset_name: rust-open-service-broker-windows-x86_64
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Cache cargo registry + target
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}-${{ matrix.features }}
+
+      - name: Build (release)
+        shell: bash
+        run: |
+          if [ -n "${{ matrix.features }}" ]; then
+            cargo build --release --target ${{ matrix.target }} --features ${{ matrix.features }}
+          else
+            cargo build --release --target ${{ matrix.target }}
+          fi
+
+      - name: Stage release artifacts
+        shell: bash
+        run: |
+          set -eu
+          STAGE="staging/${{ matrix.asset_name }}"
+          mkdir -p "$STAGE"
+          BIN_NAME="rust-open-service-broker"
+          if [ "${{ matrix.os }}" = "windows-latest" ]; then
+            cp "target/${{ matrix.target }}/release/${BIN_NAME}.exe" "$STAGE/"
+          else
+            cp "target/${{ matrix.target }}/release/${BIN_NAME}" "$STAGE/"
+          fi
+          cp README.md "$STAGE/" 2>/dev/null || true
+          cp catalog.example.json "$STAGE/" 2>/dev/null || true
+          ls -lah "$STAGE"
+
+      - name: Create archive (tar.gz)
+        if: matrix.archive == 'tar.gz'
+        shell: bash
+        run: |
+          cd staging
+          tar czf "${{ matrix.asset_name }}.tar.gz" "${{ matrix.asset_name }}"
+          shasum -a 256 "${{ matrix.asset_name }}.tar.gz" > "${{ matrix.asset_name }}.tar.gz.sha256"
+          ls -lah
+
+      - name: Create archive (zip)
+        if: matrix.archive == 'zip'
+        shell: pwsh
+        run: |
+          cd staging
+          Compress-Archive -Path "${{ matrix.asset_name }}" -DestinationPath "${{ matrix.asset_name }}.zip"
+          $hash = (Get-FileHash "${{ matrix.asset_name }}.zip" -Algorithm SHA256).Hash.ToLower()
+          "$hash  ${{ matrix.asset_name }}.zip" | Out-File -Encoding ascii "${{ matrix.asset_name }}.zip.sha256"
+          Get-ChildItem
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.asset_name }}
+          path: |
+            staging/${{ matrix.asset_name }}.${{ matrix.archive }}
+            staging/${{ matrix.asset_name }}.${{ matrix.archive }}.sha256
+          retention-days: 7
+
+  # ---------------------------------------------------------------------------
+  # FreeBSD: GitHub Actions has no FreeBSD runner, so we boot a VM
+  # inside ubuntu-latest and build there. Slower than native but works.
+  # ---------------------------------------------------------------------------
+  build-freebsd:
+    name: build x86_64-unknown-freebsd
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build inside FreeBSD VM
+        id: build
+        uses: vmactions/freebsd-vm@v1
+        with:
+          release: '14.1'
+          usesh: true
+          mem: 4096
+          prepare: |
+            pkg install -y curl bash
+            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable --profile minimal
+          run: |
+            . "$HOME/.cargo/env"
+            cargo build --release
+            mkdir -p staging/rust-open-service-broker-freebsd-x86_64
+            cp target/release/rust-open-service-broker staging/rust-open-service-broker-freebsd-x86_64/
+            cp README.md staging/rust-open-service-broker-freebsd-x86_64/ || true
+            cp catalog.example.json staging/rust-open-service-broker-freebsd-x86_64/ || true
+            cd staging
+            tar czf rust-open-service-broker-freebsd-x86_64.tar.gz rust-open-service-broker-freebsd-x86_64
+            sha256 rust-open-service-broker-freebsd-x86_64.tar.gz | awk '{print $4 "  " $2}' > rust-open-service-broker-freebsd-x86_64.tar.gz.sha256
+            ls -lah
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: rust-open-service-broker-freebsd-x86_64
+          path: |
+            staging/rust-open-service-broker-freebsd-x86_64.tar.gz
+            staging/rust-open-service-broker-freebsd-x86_64.tar.gz.sha256
+          retention-days: 7
+
+  # ---------------------------------------------------------------------------
+  # Collect all artifacts and publish the GitHub Release.
+  # ---------------------------------------------------------------------------
+  publish:
+    name: publish github release
+    needs: [build-native, build-freebsd]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Flatten artifacts into release-assets/
+        run: |
+          set -eu
+          mkdir -p release-assets
+          find artifacts -type f \( -name '*.tar.gz' -o -name '*.zip' -o -name '*.sha256' \) \
+            -exec cp {} release-assets/ \;
+          echo "--- assets ---"
+          ls -lah release-assets
+
+      - name: Determine tag
+        id: tag
+        run: |
+          if [ -n "${{ github.event.inputs.tag }}" ]; then
+            echo "tag=${{ github.event.inputs.tag }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create or update GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.tag.outputs.tag }}
+          name: ${{ steps.tag.outputs.tag }}
+          generate_release_notes: true
+          files: release-assets/*

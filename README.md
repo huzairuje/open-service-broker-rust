@@ -150,3 +150,37 @@ Reference broker, ready to be specialized. Out of the box it provides:
 - Docker + docker-compose with bundled Postgres
 
 To turn it into a real broker, replace `sample_credentials` and the no-op provisioning in the handlers with calls into your actual service (provision a DB, create a user, hand back real credentials).
+
+## Releases
+
+Prebuilt binaries are produced by `.github/workflows/release.yml` for:
+
+- `linux-x86_64` (with and without the `postgres` feature)
+- `macos-x86_64` and `macos-aarch64`
+- `windows-x86_64`
+- `freebsd-x86_64`
+
+Each asset is a `tar.gz` (or `zip` on Windows) containing the binary, `README.md`, and `catalog.example.json`. A `.sha256` file is published alongside every archive.
+
+### Cut a release
+
+```bash
+# 1. Tag the commit you want to release
+git tag -a v0.1.0 -m "v0.1.0"
+git push origin v0.1.0
+```
+
+The workflow runs on the tag push, builds every target in parallel, and creates a GitHub Release at that tag with all archives attached and auto-generated release notes.
+
+You can also trigger a release manually from the Actions tab via `workflow_dispatch` with a tag input.
+
+### Verify a download
+
+```bash
+# Linux example
+curl -LO https://github.com/<you>/open-service-broker-rust/releases/download/v0.1.0/rust-open-service-broker-linux-x86_64.tar.gz
+curl -LO https://github.com/<you>/open-service-broker-rust/releases/download/v0.1.0/rust-open-service-broker-linux-x86_64.tar.gz.sha256
+shasum -a 256 -c rust-open-service-broker-linux-x86_64.tar.gz.sha256
+tar xzf rust-open-service-broker-linux-x86_64.tar.gz
+./rust-open-service-broker-linux-x86_64/rust-open-service-broker
+```
