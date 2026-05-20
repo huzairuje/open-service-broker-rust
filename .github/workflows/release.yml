@@ -38,7 +38,7 @@ jobs:
             archive: tar.gz
             features: 'postgres'
             asset_name: rust-open-service-broker-linux-x86_64-postgres
-          - os: macos-13
+          - os: macos-latest
             target: x86_64-apple-darwin
             archive: tar.gz
             features: ''
